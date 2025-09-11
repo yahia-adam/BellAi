@@ -1,9 +1,8 @@
 import streamlit as st
 import asyncio
 import json
-import time
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 # Configuration de la page
 st.set_page_config(
@@ -12,10 +11,13 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-
-from bellai.core.agent import bellai_agent
-from bellai.core.memory import chat_memory
-from bellai.core.intention import action_manager
+try:
+    from bellai.core.agent import bellai_agent
+    from bellai.core.memory import chat_memory
+    from bellai.tools.intention_service import action_manager
+except ImportError:
+    st.error("⚠️ Impossible d'importer les modules BellAI. Vérifiez votre structure de projet.")
+    st.stop()
 
 # =============================================================================
 # ÉTAT DE SESSION STREAMLIT
