@@ -197,7 +197,7 @@ def main():
                             cancel_backend_action(action['id'])
                     
                     # Afficher les données complètes
-                    with st.expander("🔍 Données Complètes"):
+                    if st.checkbox("🔍 Voir Données Complètes", key=f"show_data_{action['id']}"):
                         st.json(action['data'])
         else:
             st.info("Aucune action en attente")
