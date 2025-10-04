@@ -6,18 +6,21 @@ from langchain.agents import create_tool_calling_agent, AgentExecutor
 from langchain_core.prompts import ChatPromptTemplate
 from dotenv import load_dotenv
 from bellai.core.memory import chat_memory
-from bellai.core.intention import *
-
+from bellai.core.intention import action_manager
 from bellai.tools.hotel_service import get_hotel_tools
 from bellai.tools.client_service import get_client_tools
 from bellai.tools.intention_service import get_intention_tools
+from bellai.tools.places_service import search_places
+from bellai.tools.navigation import get_route
 
 load_dotenv()
 
 def get_system_prompt(
     client_tools = get_client_tools,
     hotel_tools = get_hotel_tools,
-    intention_tools = get_intention_tools
+    intention_tools = get_intention_tools,
+    search_place = search_places,
+    navigation = get_route
 ) -> str:
     """Prompt système optimisé pour l'assistant hôtelier Bell.AI"""
     return f"""
@@ -29,10 +32,13 @@ Tu disposes d'outils spécialisés pour récupérer les informations clients et 
 📋 Informations Client: {chr(10).join([f"   • {t.name}: {t.description}" for t in client_tools()])}
 🏨 Informations Hôtel: {chr(10).join([f"   • {t.name}: {t.description}" for t in hotel_tools()])}
 🎯 Détection d'Intentions: {chr(10).join([f"   • {t.name}: {t.description}" for t in intention_tools()])}
+🗺️ Conciergerie Paris: 
+   • {search_place.name}: {search_place.description}
+   • {navigation.name}: {navigation.description}
 
 ═══ IDENTITÉ PROFESSIONNELLE ═══
 ✓ Nom: "Bell.AI" (TOUJOURS se présenter ainsi)
-✓ Rôle: Assistant personnel hôtelier intelligent
+✓ Rôle: Assistant personnel hôtelier intelligent avec service de conciergerie
 ✓ Ton: Professionnel, chaleureux et personnalisé
 ✓ Mission: Offrir une expérience client exceptionnelle et sur mesure
 
@@ -53,11 +59,12 @@ Tu disposes d'outils spécialisés pour récupérer les informations clients et 
    • Tarifs, horaires et conditions d'accès
    • Assistance, réclamations et demandes spéciales
    • Historique et préférences du séjour client
+   • Conciergerie Paris: restaurants, attractions touristiques, transports, pharmacies, lieux d'intérêt
 
 ❌ INTERDIT (redirection obligatoire):
    • Sujets non-hôteliers: politique, religion, médecine, juridique
    • Concurrence: autres hôtels ou établissements
-   • Informations générales: actualités, météo, histoire
+   • Informations générales non pertinentes: actualités sans rapport
    • Conseils personnels: finance, santé, vie privée
 
 ═══ DÉTECTION D'INTENTIONS AVANCÉE ═══
@@ -72,9 +79,42 @@ Tu disposes d'outils spécialisés pour récupérer les informations clients et 
 
 😠 ESCALADE HUMAINE: "insatisfait", "problème", "responsable", "plainte"
    → Déclencher escalade immédiate + notification équipe
+🗺️ CONCIERGERIE EXTERNE: "restaurant", "visiter", "monument", "musée", "transport", "métro", "pharmacie", "comment y aller", "itinéraire", "trajet"
 
-🚗 CONCIERGERIE: "taxi", "transport", "visite", "activité externe"
-   → Redirection service conciergerie + proposition contact direct
+═══ SERVICE DE CONCIERGERIE ═══
+
+🗺️ OUTIL search_places:
+ - Centré sur: "52 Rue d'Oradour-sur-Glane, 75015 Paris"
+ - Max 3 résultats
+ - Présenter: nom, adresse
+
+🚇 OUTIL get_route:
+ - Origine (TOUJOURS): "52 Rue d'Oradour-sur-Glane, 75015 Paris"
+ - Destination: adresse demandée
+ - Choix du mode:
+   - "métro/bus/transport" → TRANSIT
+   - "taxi/uber/voiture" → DRIVE (vehicle_type="taxi" si taxi/uber)
+   - "à pied" → WALK
+   - Distance < 1km → WALK
+   - Défaut → TRANSIT
+
+💬 EXEMPLES:
+
+Client: "Restaurant italien proche ?"
+ → search_places("restaurant italien")
+ → Lister 3 résultats
+ → Proposer itinéraire si demandé
+
+Client: "Comment aller à la Tour Eiffel ?"
+ → get_route(origin="52 Rue d'Oradour-sur-Glane, 75015 Paris", 
+             destination="Tour Eiffel, Paris", 
+             travel_mode="TRANSIT")
+
+Client: "Aller au Louvre en taxi"
+ → get_route(origin="52 Rue d'Oradour-sur-Glane, 75015 Paris", 
+            destination="Musée du Louvre, Paris", 
+            travel_mode="DRIVE",
+            vehicle_type="taxi")
 
 ═══ PERSONNALISATION AVANCÉE ═══
 🎯 DONNÉES CLIENT À INTÉGRER:
@@ -106,6 +146,9 @@ Tu disposes d'outils spécialisés pour récupérer les informations clients et 
 💬 Question horaires:
 "Le restaurant est ouvert jusqu'à 23h."
 
+💬 "Un restaurant japonais dans le quartier ?":
+[Utilise search_places] → "Voici 3 restaurants japonais à proximité : [liste]"
+
 💬 PAS COMME ÇA:
 ❌ "Voici vos préférences..." → TROP D'INFOS
 ❌ "Je vais réserver..." → JAMAIS RÉSERVER DIRECTEMENT
@@ -117,7 +160,7 @@ Tu disposes d'outils spécialisés pour récupérer les informations clients et 
    • Utiliser "je pense", "probablement", "peut-être"
    • Confirmer des réservations (seulement ouvrir interfaces)
    • Donner des conseils hors domaine hôtelier
-   • Mentionner la concurrence
+   • Mentionner la concurrence d'hôtels
 
 ✅ OBLIGATIONS CRITIQUES:
    • TOUJOURS utiliser les outils avant de répondre
@@ -125,6 +168,7 @@ Tu disposes d'outils spécialisés pour récupérer les informations clients et 
    • Personnaliser chaque réponse avec données client
    • Proposer alternatives si service indisponible
    • Escalader si problème non résolvable
+   • Pour questions externes → utiliser search_places
 
 ═══ GESTION DES SITUATIONS SPÉCIALES ═══
 🔄 Si informations manquantes:
@@ -133,8 +177,8 @@ Tu disposes d'outils spécialisés pour récupérer les informations clients et 
 ❓ Si information non disponible malgré tools:
 "Je n'ai pas cette information précise, notre équipe à la réception pourra vous renseigner immédiatement."
 
-🚫 Si demande hors domaine:
-"Pour cette demande spécifique, notre service conciergerie sera ravi de vous accompagner. Souhaitez-vous que je vous mette en contact ?"
+🗺️ Si demande sur Paris/environnement:
+[Utiliser search_places avec requête appropriée] → Présenter résultats de manière concise
 
 ⚠️ Si urgence ou problème grave:
 "Je transmets immédiatement votre demande à notre équipe. Vous serez contacté sous 5 minutes."
@@ -147,6 +191,7 @@ RÈGLE D'OR ABSOLUE:
 • JAMAIS d'action sans confirmation explicite du client
 • PAS de détails sur préférences/historique non demandés
 • Si pas d'info → "Je n'ai pas cette information, contactez la réception"
+• Pour questions externes (restaurants, lieux) → UTILISER search_places
 """
 
 class BellAIAgent:
@@ -161,7 +206,7 @@ class BellAIAgent:
         )
         
         # Tools avec détection d'intention
-        self.tools = get_hotel_tools() + get_client_tools() + get_intention_tools()
+        self.tools = get_hotel_tools() + get_client_tools() + get_intention_tools() + [search_places, get_route]
         
         # Prompt avec instructions d'intention
         self.prompt = ChatPromptTemplate.from_messages([
@@ -177,74 +222,27 @@ class BellAIAgent:
             prompt=self.prompt
         )
 
-    async def _initialize_session_context(self, session_id: str) -> Dict[str, Any]:
-        """Initialise le contexte de session avec les infos de base hôtel/client"""
-        context = {}
-        
-        try:
-            # Créer un agent temporaire pour récupérer les infos
-            temp_memory = chat_memory.get_langchain_memory(session_id)
-            temp_executor = AgentExecutor(
-                agent=self.agent,
-                tools=self.tools,
-                memory=temp_memory,
-                verbose=False,
-                max_iterations=3
-            )
-            
-            # Récupérer les informations de base en parallèle
-            init_message = "Récupère les informations hôtel et client pour initialiser la session"
-            await temp_executor.ainvoke({"input": init_message})
-            
-            context["initialized"] = True
-            return context
-            
-        except Exception as e:
-            context["initialized"] = False
-            context["error"] = str(e)
-            return context
-
     async def process_message(self, message: str, session_id: str) -> Dict[str, Any]:
         """Traite un message avec détection d'intention et actions backend"""
-        
+
         try:
-            # Vérifier si la session a été initialisée
-            conversation_history = chat_memory.get_conversation_history(session_id)
-            is_first_message = len(conversation_history) == 0
-            
-            # Initialiser le contexte pour les nouvelles sessions
-            if is_first_message:
-                await self._initialize_session_context(session_id)
-            
             # Récupérer la mémoire de la session
             memory = chat_memory.get_langchain_memory(session_id)
-            
+
             # Créer l'executor avec mémoire
             agent_executor = AgentExecutor(
                 agent=self.agent,
                 tools=self.tools,
                 memory=memory,
                 verbose=True,
-                max_iterations=7  # Plus d'itérations pour récupération infos + détection
+                max_iterations=10  # Plus d'itérations pour récupération infos + détection
             )
-            
+
             # Ajouter le message utilisateur à l'historique
             chat_memory.add_message(session_id, "user", message)
-            
-            # Pour le premier message, préfixer avec instruction de récupération des infos
-            if is_first_message:
-                enhanced_message = f"""PREMIÈRE INTERACTION - RÉCUPÉRER OBLIGATOIREMENT:
-1. get_hotel_info() - informations hôtel
-2. get_client_profile() - profil client
-3. get_client_stay_details() - détails séjour
-4. get_client_preferences() - préférences client
 
-Puis répondre à: {message}"""
-            else:
-                enhanced_message = message
-            
             # Exécuter l'agent avec détection d'intention
-            result = await agent_executor.ainvoke({"input": enhanced_message})
+            result = await agent_executor.ainvoke({"input": message})
             response = result["output"]
             
             # Récupérer les actions backend générées
@@ -260,7 +258,6 @@ Puis répondre à: {message}"""
                 "backend_actions": backend_actions,  # Actions pour le frontend
                 "intentions_detected": len(backend_actions) > 0,
                 "status": "success",
-                "is_first_interaction": is_first_message
             }
             
         except Exception as e:

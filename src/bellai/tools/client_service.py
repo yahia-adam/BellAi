@@ -1,6 +1,14 @@
 
 import json
+from datetime import datetime
 from langchain.tools import tool
+
+@tool
+def get_current_time():
+    """
+        Retourne l'heure actuelle.
+    """
+    return datetime.now()
 
 @tool
 def get_client_profile() -> str:
