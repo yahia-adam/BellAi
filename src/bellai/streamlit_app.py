@@ -11,13 +11,13 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
-try:
-    from bellai.core.agent import bellai_agent
-    from bellai.core.memory import chat_memory
-    from bellai.tools.intention_service import action_manager
-except ImportError:
-    st.error("⚠️ Impossible d'importer les modules BellAI. Vérifiez votre structure de projet.")
-    st.stop()
+# try:
+from bellai.core.agent import bellai_agent
+from bellai.core.memory import chat_memory
+from bellai.tools.intention_service import action_manager
+# except ImportError:
+#     st.error("⚠️ Impossible d'importer les modules BellAI. Vérifiez votre structure de projet.")
+#     st.stop()
 
 # =============================================================================
 # ÉTAT DE SESSION STREAMLIT
